@@ -1,0 +1,89 @@
+#!/bin/sh
+# Init script to load/unload assignment kernel modules on boot/shutdown
+# This script is intended to be placed in the rootfs overlay used by Buildroot
+
+case "$1" in
+  start)
+    echo "Starting ldd module loader"
+    # Load scull module and create device nodes (if available)
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe scull || true
+    else
+        insmod /lib/modules/$(uname -r)/extra/scull.ko || true
+    fi
+    # Give the kernel a moment to register the device
+    sleep 1
+    if [ -r /proc/devices ]; then
+        major=$(awk '$2=="scull" {print $1}' /proc/devices)
+        if [ -n "$major" ]; then
+            rm -f /dev/scull /dev/scull[0-3]
+            mknod /dev/scull0 c $major 0
+            mknod /dev/scull1 c $major 1
+            mknod /dev/scull2 c $major 2
+            mknod /dev/scull3 c $major 3
+            ln -sf scull0 /dev/scull
+            # set permissive permissions so tests/tools can use the device
+            chmod 0664 /dev/scull[0-3] 2>/dev/null || true
+        fi
+    fi
+
+    # Load faulty driver (will be unloaded on shutdown)
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe faulty || true
+    else
+        insmod /lib/modules/$(uname -r)/extra/faulty.ko || true
+    fi
+
+    # Create /dev/faulty if needed
+    sleep 1
+    if [ -r /proc/devices ]; then
+        fmajor=$(awk '$2=="faulty" {print $1}' /proc/devices)
+        if [ -n "$fmajor" ]; then
+            rm -f /dev/faulty
+            mknod /dev/faulty c $fmajor 0 || true
+            chmod 0666 /dev/faulty 2>/dev/null || true
+        fi
+    fi
+
+    # Load hello module using modprobe
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe hello || true
+    else
+        insmod /lib/modules/$(uname -r)/extra/hello.ko || true
+    fi
+
+    # Create /dev/hello if needed
+    if [ -r /proc/devices ]; then
+        hmajor=$(awk '$2=="hello" {print $1}' /proc/devices)
+        if [ -n "$hmajor" ]; then
+            rm -f /dev/hello
+            mknod /dev/hello c $hmajor 0 || true
+            chmod 0666 /dev/hello 2>/dev/null || true
+        fi
+    fi
+
+    ;;
+  stop)
+    echo "Stopping ldd module loader"
+    # Remove hello first
+    if command -v rmmod >/dev/null 2>&1; then
+        rmmod hello || true
+        rmmod faulty || true
+        rmmod scull || true
+    else
+        # fallback to /sbin/rmmod path
+        /sbin/rmmod hello || true
+        /sbin/rmmod faulty || true
+        /sbin/rmmod scull || true
+    fi
+
+    # Clean up device nodes created for scull
+    rm -f /dev/scull /dev/scull[0-3] /dev/scullpipe /dev/scullpipe[0-3] /dev/scullsingle /dev/sculluid /dev/scullwuid /dev/scullpriv 2>/dev/null || true
+    ;;
+  *)
+    echo "Usage: $0 {start|stop}"
+    exit 1
+    ;;
+esac
+
+exit 0
