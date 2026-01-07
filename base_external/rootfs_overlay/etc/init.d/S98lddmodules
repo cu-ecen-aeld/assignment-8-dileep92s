@@ -62,6 +62,23 @@ case "$1" in
         fi
     fi
 
+    # Load aesdchar module using modprobe
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe aesdchar || true
+    else
+        insmod /lib/modules/$(uname -r)/extra/aesdchar.ko || true
+    fi
+
+    # Create /dev/aesdchar if needed
+    if [ -r /proc/devices ]; then
+        hmajor=$(awk '$2=="aesdchar" {print $1}' /proc/devices)
+        if [ -n "$hmajor" ]; then
+            rm -f /dev/aesdchar
+            mknod /dev/aesdchar c $hmajor 0 || true
+            chmod 0666 /dev/aesdchar 2>/dev/null || true
+        fi
+    fi
+
     ;;
   stop)
     echo "Stopping ldd module loader"
@@ -70,11 +87,13 @@ case "$1" in
         rmmod hello || true
         rmmod faulty || true
         rmmod scull || true
+        rmmod aesdchar || true
     else
         # fallback to /sbin/rmmod path
         /sbin/rmmod hello || true
         /sbin/rmmod faulty || true
         /sbin/rmmod scull || true
+        /sbin/rmmod aesdchar || true
     fi
 
     # Clean up device nodes created for scull
